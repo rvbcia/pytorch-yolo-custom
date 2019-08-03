@@ -28,8 +28,9 @@ Important Notes
 
 ## Collect and Label Data
 
-1. Use one of the two labeling tools and export to YOLO format:
-  * <a href="https://github.com/Microsoft/VoTT" target="_blank">VoTT v1</a> labeling tool to create bounding boxes around objects of interest in images and export to YOLO format.  
+1. Use one of these two labeling tools and export to YOLO format:
+  * <a href="https://github.com/microsoft/VoTT/releases/tag/v1.7.1" target="_blank">VoTT v1 download</a> and <a href="https://github.com/microsoft/VoTT/tree/ec6057c4c95780f7547d5c55245c6f48b396e29c" target="_blank">v1 README</a> - labeling tool to create bounding boxes around objects of interest in images and export to YOLO format.
+  * <a href="https://github.com/tzutalin/labelImg" target="_blank">labelIMG</a> (probably easiest to `pip3 install labelImg`)
 2. If you wish to train on all labeled images, make sure they are all in the `train.txt` file (this is read by the `customloader.py`).
 
 The `data` output folder should be a subdirectory here with the images, labels and pointer file.
