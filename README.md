@@ -41,22 +41,23 @@ The `data` output folder should be a subdirectory here with the images, labels a
 
 To summarize, within the appropriate config file located under the `cfg` folder (note, examples are there), the following properties will be modified as per instructions here.
 
-in the `[net]` part at the beginning (`steps` are epochs, here):
+in the `[net]` part at the beginning (`steps` are epochs, here), e.g.:
 
 ```
 classes=1
 batch=2
 steps=1
+anchors = 25,87, 44,55, 46,110, 72,74, 80,118, 93,45, 105,72, 127,96, 144,58
 ```
 
-in `[yolo]` parts:
+in `[yolo]` parts, e.g.:
 
 ```
 anchors = 25,87, 44,55, 46,110, 72,74, 80,118, 93,45, 105,72, 127,96, 144,58
 classes=1
 ```
 
-in the `[convolutional]` parts above `[yolo]` layers:
+in the `[convolutional]` parts above `[yolo]` layers, e.g.:
 
 ```
 filters=18
