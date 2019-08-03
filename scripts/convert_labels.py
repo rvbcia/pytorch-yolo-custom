@@ -56,11 +56,8 @@ def gather_bboxes(infolder, outfile):
     [x_center, y_center, width, height] to
     [x_min, y_min, x_max, y_max] (also known as
     [x1, y1, x2, y2])
-    
-    Note the use of hardcoded image name suffixes"""
-    # Hardcoded suffixes - modify as needed
-    img_files = glob.glob(infolder + os.sep + '*.jpg')
-    img_files.extend(glob.glob(infolder + os.sep + '*.JPG'))
+    """
+    img_files = glob.glob(os.path.join(infolder, '*.[!t]*'))
     print('Converting labels for {} images'.format(len(img_files)))
 
     new_lines = []
@@ -102,7 +99,7 @@ if __name__ == "__main__":
 
     # Command line options
     parser.add_argument(
-        '--annot_folder', type=str,
+        '--annot-folder', type=str, dest='annot_folder',
         help='Annotations folder with individual bounding box label files (and images) in YOLO format'
     )
     parser.add_argument(

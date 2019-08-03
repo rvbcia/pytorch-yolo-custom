@@ -14,7 +14,7 @@ import torch
 import os
 import argparse
 import random
-from customloader import CustomDataset, YoloResize, YoloResizeTransform
+from customloader import CustomDataset, YoloResize, YoloResizeTransform, Normalize
 from torch.utils.data import DataLoader
 from data_aug.data_aug import Sequence
 from util import write_results, de_letter_box
@@ -36,15 +36,14 @@ def arg_parse():
     """
     parser = argparse.ArgumentParser(description='YOLO v3 Evaluation Module')
 
-    parser.add_argument("--cfg", dest = 'cfgfile', help =
-                        "Config file",
-                        default = "cfg/yolov3.cfg", type = str)
-    parser.add_argument("--weights", dest = 'weightsfile', help =
-                        "weightsfile",
-                        default = "yolov3.weights", type = str)
+    parser.add_argument("--cfg", dest='cfgfile', help="Config file",
+                        default="cfg/yolov3.cfg", type=str)
+    parser.add_argument("--weights", dest='weightsfile', help="weightsfile",
+                        default="yolov3.weights", type=str)
     parser.add_argument("--overlap", dest="overlap_thresh", 
                         help="Overlap threshhold", default=0.5)
-
+    parser.add_argument("--plot-conf", dest="plot_conf", type=float,
+                        help="Bounding box plotting confidence", default=0.8)
     return parser.parse_args()
 
 # Original author: Francisco Massa:
@@ -270,9 +269,10 @@ if __name__ == "__main__":
     model.eval()
 
     # Load test data and resize only
-    transforms = Sequence([YoloResizeTransform(model_dim)])
+    transforms = Sequence([YoloResizeTransform(model_dim), Normalize()])
     test_data = CustomDataset(root="data", ann_file="data/test.txt", 
                               det_transforms=transforms,
+                              cfg_file=args.cfgfile,
                               num_classes=num_classes)
     test_loader = DataLoader(test_data, batch_size=1)
 
@@ -281,9 +281,7 @@ if __name__ == "__main__":
     num_gts = 0
 
     # Make a directory for the image files with their bboxes
-    img_file_sample = test_data.examples[0].rstrip()
-    eval_output_dir = img_file_sample.replace(img_file_sample.split(os.sep)[-2], 'eval_output')
-    eval_output_dir = eval_output_dir.replace(img_file_sample, '')
+    eval_output_dir = os.path.split(test_data.examples[0].rstrip())[0].replace('obj', 'eval_output')
     os.makedirs(eval_output_dir, exist_ok=True)
 
 #     for i, (img, target) in enumerate(test_loader):
@@ -328,13 +326,6 @@ if __name__ == "__main__":
         if output.shape[0] > 0:
             # To later plot bboxes
             img_ = plt.imread(img_file)
-            # # Get x1y1x2y2, mask conf, class conf
-            # # Remember original image is square (or should be)
-            # # Note:  inp_dim is model input size, im_dim is actual image size
-            # output[:, 0] *= np.asarray(im_dim[0]/inp_dim)
-            # output[:, 1] *= np.asarray(im_dim[1]/inp_dim)
-            # output[:, 2] *= np.asarray(im_dim[0]/inp_dim)
-            # output[:, 3] *= np.asarray(im_dim[1]/inp_dim)
 
             output = write_results(output, 0.0, num_classes, model_dim, orig_dim.unsqueeze(0), nms=True, nms_conf=0.5)
 
@@ -349,13 +340,13 @@ if __name__ == "__main__":
             for i in range(output.shape[0]):
                 output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, orig_dim[i,0])
                 output[i, [2,4]] = torch.clamp(output[i, [2,4]], 0.0, orig_dim[i,1])
-                if output[i,7] > 0.8:
-                    # Draw bounding boxes on test images
-                    colors = pkl.load(open("pallete", "rb"))
-                    c1 = tuple(final[[0,1]])
-                    c2 = tuple(final[[2,3]])                    
-                    cv2.rectangle(img_, c1, c2, color=colors[1], thickness=2)
                 final = np.asarray(output[i, 1:6], dtype=np.int32)
+                if output[i,7] > args.plot_conf:
+                    # Draw bounding boxes on test images ([top, left], [bottom, right])
+                    colors = pkl.load(open("pallete", "rb"))
+                    c1 = tuple(final[[3,0]])
+                    c2 = tuple(final[[1,2]])              
+                    cv2.rectangle(img_, c1, c2, color=colors[3], thickness=1)
                 outputs.append(final)
 
             # write image with bboxes to a new folder

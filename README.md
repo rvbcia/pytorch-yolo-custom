@@ -19,7 +19,7 @@ Important Notes
 --- 
 * This project is a work in progress.
 * Training is very sensitive to LR and LR decreases (please be aware and watch out for this).
-* The example config files are 2 classes, see below on how to change the numbe of classes.
+* The example config files are 2 classes, see below on how to change the number of classes.
 
 ## Setup
 
@@ -28,24 +28,55 @@ Important Notes
 
 ## Collect and Label Data
 
-1. Use the <a href="https://github.com/Microsoft/VoTT" target="_blank">VoTT</a> labeling tool to create bounding boxes around objects of interest in images and export to YOLO format.  The `data` output folder should be a subdirectory here with the images, labels and pointer file.
+1. Use one of the two labeling tools and export to YOLO format:
+  * <a href="https://github.com/Microsoft/VoTT" target="_blank">VoTT v1</a> labeling tool to create bounding boxes around objects of interest in images and export to YOLO format.  
 2. If you wish to train on all labeled images, make sure they are all in the `train.txt` file (this is read by the `customloader.py`).
+
+The `data` output folder should be a subdirectory here with the images, labels and pointer file.
 
 ## Train Model
 
 ### Modifications for Custom
 
-**Filters and Classes**
+To summarize, within the appropriate config file located under the `cfg` folder (note, examples are there), the following properties will be modified as per instructions here.
 
-Ensure the `yolov3-tiny.cfg` or `yolov3.cfg` is set up correctly.  Note, the number of classes will affect the last convolutional layer filter numbers (conv layers before the yolo layer) as well as the yolo layers themselves - so **will need to be modified manually** to suit the needs of the user.
+in the `[net]` part at the beginning (`steps` are epochs, here):
 
-Change the number of classes appropriately (e.g. `classes=2`).
+```
+classes=1
+batch=2
+steps=1
+```
 
-Modify the filter number of the CNN layer directly before each [yolo] layer to be:  `filters=`, then calculate (classes + 5)x3, and place after.  So, if `classes=1` then should be `filters=18`. If `classes=2` then write `filters=21`, and so on.
+in `[yolo]` parts:
 
-**Anchors**
+```
+anchors = 25,87, 44,55, 46,110, 72,74, 80,118, 93,45, 105,72, 127,96, 144,58
+classes=1
+```
 
-The tiny architecture has 6 anchors, whereas, the non-tiny or full sized YOLOv3 architecture has 9 anchors.  These anchors should be manually discovered with `kmeans.py` and specified in the `cfg` file.
+in the `[convolutional]` parts above `[yolo]` layers:
+
+```
+filters=18
+```
+
+Keep reading to find out more.
+
+**Changing Anchors**
+
+The tiny architecture has 6 anchors, whereas, the non-tiny or full sized YOLOv3 architecture has 9 anchors (or anchor boxes).  
+
+* Run Kmeans algorithm:  these anchors should be manually discovered with and specified in the `cfg` file.  Run `scripts/convert_labels.py` and then `kmeans.py` on new annotatino format output.  (a workaround for now to get anchors)
+* Modify the `anchors` in the `yolov3-tiny-x.cfg` or `yolov3-x.cfg` in the `[net]` section and the `[yolo]` sections with the new anchor box x, y values.
+
+**Changing Filters and Classes**
+
+* Ensure the `yolov3-tiny-x.cfg` or `yolov3-x.cfg` is set up correctly.  Note, the number of classes will affect the last convolutional layer filter numbers (conv layers before the yolo layer) as well as the yolo layers themselves - so **will need to be modified manually** to suit the needs of the user.
+
+* Change the number of classes appropriately (e.g. `classes=2`) in each `[yolo]` layer (there will be three in the yolov3 and 2 in yolov3-tiny config files).
+
+* Modify the filter number of the CNN layer directly before each [yolo] layer to be:  `filters=`, then calculate (classes + 5)x3, and place after.  So, if `classes=1` then should be `filters=18`. If `classes=2` then write `filters=21`, and so on.
 
 **Additional Instructions**
 
@@ -142,11 +173,11 @@ Updates to original codebase
 * [x] Fix the learning rate adjustment to decrease more consistently during training and finetuning
 * [x] Created method to find optimal anchor box sizes with `kmeans.py` and a script to temporarily convert labels `scripts/convert_labels.py` (the converted labels are only used for calculating anchor values)
 * [x] Ensure this codebase works with full sized YOLOv3 network
+* [x] Fix `customloader.py` to take custom (as an argument) anchors, anchor numbers and model input dims
+* [x] Clean up unnecessary params in config files
 ---
 * [ ] Checkpoint only models with better loss values than previous ones (use checkpoint functionality in PyTorch)
-* [ ] Fix `customloader.py` to take custom (as an argument) anchors, anchor numbers and model input dims
 * [ ] Ensure `live.py` is correctly drawing bounding boxes
 * [ ] Ensure `eval.py` is correctly evaluating predictions
 * [ ] flake8 (clean up extra blank lines, long lines, etc.)
 * [ ] Remove `*` imports in place of explicit imports
-* [ ] Clean up unnecessary params in config files

@@ -5,6 +5,7 @@ to use during training.
 
 import numpy as np
 import argparse
+import json
 
 
 class YOLO_Kmeans:
@@ -95,7 +96,8 @@ class YOLO_Kmeans:
         result = self.kmeans(all_boxes, k=self.cluster_number)
         result = result[np.lexsort(result.T[0, None])]
         self.result2txt(result)
-        print("K anchors:\n {}".format(result))
+        result_print = json.dumps(result.tolist())
+        print("K anchors:\n {}".format(result_print))
         print("Accuracy: {:.2f}%".format(
             self.avg_iou(all_boxes, result) * 100))
 

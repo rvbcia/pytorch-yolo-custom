@@ -6,7 +6,8 @@ import numpy as np
 import pickle as pkl
 import matplotlib.pyplot as plt
 from data_aug.bbox_util import draw_rect
-from data_aug.data_aug import *
+# from data_aug.data_aug import *
+from darknet import Darknet
 import time
 import random
 from torch.utils.data import DataLoader
@@ -14,13 +15,8 @@ from bbox import corner_to_center, center_to_corner, bbox_iou
 import cv2 
 import os
 
-
-inp_dim = 416
-# Custom transform options
-# custom_transforms = Sequence([ RandomHSV(), RandomHorizontalFlip(), RandomScaleTranslate(translate=0.05, scale=(0,0.3)), RandomRotate(10),  RandomShear(), YoloResize(inp_dim)])
-custom_transforms = Sequence([ RandomHSV(), YoloResize(inp_dim)])
-
 random.seed(0)
+
 
 def transform_annotation(x):
     """Convert the annotation/target boxes to a format understood by
@@ -41,7 +37,7 @@ def transform_annotation(x):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, root, num_classes, ann_file, det_transforms=None):
+    def __init__(self, root, num_classes, ann_file, cfg_file, det_transforms=None):
         """Note:  When using VoTT and exported to YOLO, 
         ann_file is a list to paths of images"""
         self.root = root
@@ -51,16 +47,7 @@ class CustomDataset(Dataset):
             self.examples = f.readlines()
         self.det_transforms = det_transforms
 
-        # The following, user needs to modify (TODO - create from args)
-        self.inp_dim = 416
-        self.strides = [32,16,8]
-        self.anchor_nums = [3,3,3]
-        self.num_classes = num_classes
-        # self.anchors = [[10,14],  [23,27],  [37,58],  [81,82],  [135,169],  [344,319]]
-        # self.anchors = [[116,78], [122,181], [243,38], [337,256], [486,458], [492,42], [605,162], [669,100], [1272,189]]
-        self.anchors = [[151,94], [260,280], [346,178], [727,653], [742,388], [802,119], [1031,632], [1272,424], [1353,745]]
-        
-        self.anchors = np.array(self.anchors)[::-1]
+        self.load_config(cfg_file)
         
         #Get the number of bounding boxes predicted PER each scale 
         self.num_pred_boxes = self.get_num_pred_boxes()
@@ -72,7 +59,21 @@ class CustomDataset(Dataset):
 #        return super().__len__()
         #return len(self.ids)
         return len(self.examples)
-    
+
+    def load_config(self, cfg_file):
+        """Use the config for the network header parts"""
+        # Load the model architecture with config file
+        model = Darknet(cfg_file, train=False)
+        net_options =  model.net_info
+        self.num_classes = int(net_options['classes'])
+        # Assume h == w in model arch
+        self.inp_dim = int(net_options['height'])
+        self.anchor_nums = [int(x) for x in net_options['anchor_nums'].split(',')]
+        self.anchors = [int(x) for x in net_options['anchors'].split(',')]
+        self.strides = [int(x) for x in net_options['strides'].split(',')]
+        self.anchors = np.asarray(self.anchors).reshape(len(self.anchors)//2, 2)
+        self.anchors = self.anchors[::-1]
+
     def get_box_strides(self):
         box_strides = np.zeros((sum(self.num_pred_boxes),1))
         offset = 0
@@ -84,7 +85,6 @@ class CustomDataset(Dataset):
     def set_inp_dim(self, inp_dim):
         self.inp_dim = inp_dim
         
-        
     def get_num_pred_boxes(self):    
         detection_map_dims = [(self.inp_dim//stride) for stride in self.strides]
         return [self.anchor_nums[i]*detection_map_dims[i]**2 for i in range(len(detection_map_dims))]
@@ -95,7 +95,7 @@ class CustomDataset(Dataset):
         
         for n, pred_boxes in enumerate(self.num_pred_boxes):
             unit = self.strides[n]
-            corners = np.arange(0, inp_dim, unit)
+            corners = np.arange(0, self.inp_dim, unit)
             offset = unit // 2
             grid = np.meshgrid(corners, corners)
             
@@ -134,7 +134,7 @@ class CustomDataset(Dataset):
                 print(ground_truth)
                 assert False
             
-            a = offset + self.anchor_nums[n]*(inp_dim//self.strides[n]*center_cells[:,1] + center_cells[:,0])
+            a = offset + self.anchor_nums[n]*(self.inp_dim//self.strides[n]*center_cells[:,1] + center_cells[:,0])
             inds[:,sum(self.anchor_nums[:n])] = a
             
             for x in range(1, self.anchor_nums[n]):

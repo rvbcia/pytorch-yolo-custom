@@ -12,7 +12,7 @@ import os
 import argparse
 from darknet import Darknet, parse_cfg
 from util import *
-from data_aug.data_aug import Sequence
+from data_aug.data_aug import Sequence, YoloResizeTransform, Normalize
 from preprocess import *
 import numpy as np
 import cv2
@@ -20,7 +20,7 @@ import pickle as pkl
 import matplotlib.pyplot as plt
 from bbox import bbox_iou, corner_to_center, center_to_corner
 import pickle 
-from customloader import custom_transforms, CustomDataset
+from customloader import CustomDataset
 import torch.optim as optim
 import torch.autograd.gradcheck
 from tensorboardX import SummaryWriter
@@ -69,7 +69,7 @@ model.load_weights(args.weightsfile)
 
 # Unfreeze all but this number of layers at the beginning
 layers_length = len(list(model.parameters()))
-FINE_TUNE_STOP_LAYER = int(layers_length/1.3)
+FINE_TUNE_STOP_LAYER = layers_length - 5 # int(layers_length/1.3)
 
 # Use CUDA device if availalbe and set to train
 model = model.to(device)
@@ -198,11 +198,12 @@ def YOLO_loss(ground_truth, output):
 # Overloading custom data transforms from customloader (may add more here)
 # custom_transforms = Sequence([RandomHSV(hue=hue, saturation=saturation, brightness=exposure), 
 #     YoloResizeTransform(inp_dim)])
-custom_transforms = Sequence([YoloResizeTransform(inp_dim)])
+custom_transforms = Sequence([YoloResizeTransform(inp_dim), Normalize()] )
 
 # Data instance and loader
 data = CustomDataset(root="data", num_classes=num_classes, 
-                     ann_file="data/train.txt", 
+                     ann_file="data/train.txt",
+                     cfg_file=args.cfgfile,
                      det_transforms=custom_transforms)
 print('Batch size ', bs)
 data_loader = DataLoader(data, 
@@ -214,6 +215,9 @@ data_loader = DataLoader(data,
 
 # Use this optimizer calculation for training loss
 optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=wd)
+
+# LR scheduler
+scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
 itern = 0
 epochs = int(len(data) / bs)
@@ -230,6 +234,9 @@ for p in model.parameters():
     else:
         p.requires_grad = True
     p_i += 1
+
+# To store previous loss
+bestloss = 10000
 
 for step in range(steps):
     for image, ground_truth in data_loader:
@@ -270,6 +277,9 @@ for step in range(steps):
         if loss:
             print("Loss for iter no: {0}: {1:.4f}".format(itern, float(loss)/bs))
             writer.add_scalar("Loss/vanilla", float(loss), itern)
+            if itern % 10 == 0:
+                torch.save(model.state_dict(), os.path.join('runs', SAVE_FOLDER,
+                     'epoch{0}-bs{1}-loss{2:.4f}.pth'.format(itern, bs, float(loss)/bs)))
             loss.backward()
             optimizer.step()
 
@@ -277,13 +287,13 @@ for step in range(steps):
 
         itern += 1
 
-    # Update LR for next epoch
-    for param_group in optimizer.param_groups:
-        if itern >= lr_update_step:
-            lr_update_step += itern
-            optimizer.param_groups[0]["lr"] = (lr*pow((itern / lr_update_step),4))
-            print('lr updated: ', optimizer.param_groups[0]["lr"])
-        
+    # # Update LR for next epoch
+    # for param_group in optimizer.param_groups:
+    #     if itern >= lr_update_step:
+    #         lr_update_step += itern
+    #         optimizer.param_groups[0]["lr"] = (lr*pow((itern / lr_update_step),4))
+    #         print('lr updated: ', optimizer.param_groups[0]["lr"])
+    scheduler.step()   
 
 # Save intermediate model in pytorch format (the state dictionary only, i.e. parameters only)
 torch.save(model.state_dict(), os.path.join('runs', SAVE_FOLDER, 
@@ -295,6 +305,7 @@ torch.save(model.state_dict(), os.path.join('runs', SAVE_FOLDER,
 # Data instance with transforms (augmentations) and PyTorch loader
 data = CustomDataset(root="data", num_classes=num_classes, 
                      ann_file="data/train.txt", 
+                     cfg_file=args.cfgfile,
                      det_transforms=custom_transforms)
 data_loader = DataLoader(data, batch_size=bs,
                          shuffle=True,
@@ -313,12 +324,17 @@ for p in model.parameters():
         p.requires_grad = True
     p_i += 1
 
-# New iteration counter and make sure LR is set correctly
-# itern_fine = 0
-lr_update_step = epochs + itern - 1
-lr = optimizer.param_groups[0]["lr"] / 10
-# lr_updated = False
-optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=wd)
+# # New iteration counter and make sure LR is set correctly
+# lr_update_step = epochs + itern - 1
+# lr = optimizer.param_groups[0]["lr"] / 10
+
+optimizer = optim.SGD(model.parameters(), lr=(optimizer.param_groups[0]["lr"] / 100), momentum=momentum, weight_decay=wd)
+
+# LR scheduler
+scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+
+# To store previous best loss (reset)
+bestloss = 10000
 
 for step in range(steps):
     for image, ground_truth in data_loader:
@@ -360,21 +376,15 @@ for step in range(steps):
             writer.add_scalar("Loss/vanilla", float(loss), itern)
             if itern % 10 == 0:
                 torch.save(model.state_dict(), os.path.join('runs', SAVE_FOLDER,
-                     'epoch{0}-bs{1}-loss{2:.4f}.pth'.format(itern, bs, float(loss)/bs)))
+                     'epoch{0}-bs{1}-loss{2:.4f}-fine.pth'.format(itern, bs, float(loss)/bs)))
             loss.backward()
             optimizer.step()
  
         print('lr: ', optimizer.param_groups[0]["lr"])
 
-        # itern_fine += 1
         itern += 1
 
-    # Update LR for next epoch
-    for param_group in optimizer.param_groups:
-        if itern >= lr_update_step:
-            lr_update_step += itern
-            optimizer.param_groups[0]["lr"] = (lr*pow((itern / lr_update_step),4))
-            print('lr updated: ', optimizer.param_groups[0]["lr"])
+    scheduler.step()
 
 writer.close()
 

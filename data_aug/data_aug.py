@@ -1007,3 +1007,33 @@ class YoloResizeTransform(object):
         interpolate_str = _pil_interpolation_to_str[self.interpolation]
         return self.__class__.__name__ + '(size={0}, interpolation={1})'.format(self.size, interpolate_str)
     
+class Normalize(object):
+    """Normalize the input PIL Image to the given size.
+    Args:
+
+    """
+    def __init__(self):
+        self.channels = 3
+
+    def __call__(self, img, bboxes):
+        """
+        Args:
+            img : numpy array
+                Image to be scaled.
+        Returns:
+            img : numpy array
+                normalize image.
+        """
+        arr = img.astype('float')
+        # Do not touch the alpha channel
+        for i in range(self.channels):
+            minval = arr[...,i].min()
+            maxval = arr[...,i].max()
+            if minval != maxval:
+                arr[...,i] -= minval
+                arr[...,i] *= (255.0/(maxval-minval))
+        return arr, bboxes
+
+    def __repr__(self):
+        interpolate_str = _pil_interpolation_to_str[self.interpolation]
+        return self.__class__.__name__ + '(size={0}, interpolation={1})'.format(self.size, interpolate_str)
