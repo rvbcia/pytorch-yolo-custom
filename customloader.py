@@ -6,7 +6,7 @@ import numpy as np
 import pickle as pkl
 import matplotlib.pyplot as plt
 from data_aug.bbox_util import draw_rect
-# from data_aug.data_aug import *
+from data_aug.data_aug import YoloResize, YoloResizeTransform, Normalize
 from darknet import Darknet
 import time
 import random
