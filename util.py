@@ -13,6 +13,27 @@ import pandas as pd
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+def process_output(output, num_classes):
+    """
+    Arguments
+    ---------
+    output: tensor (3D)
+        [batch, image_id, [x_center, y_center, width, height, objectness_score, class_score1, class_score2, ...]]
+    num_classes: int
+       Number of classes
+    
+    Returns
+    -------
+    [[x_center, y_center, width, height, class, class_score]]
+    """
+    max_conf_score, max_conf = torch.max(output[:,5:5+num_classes], 1)
+    max_conf = max_conf.float().unsqueeze(1)
+    max_conf_score = max_conf_score.float().unsqueeze(1)
+    seq = (output[:,:5], max_conf, max_conf_score)
+    output = torch.cat(seq, 1)
+    
+    return output
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters())
 

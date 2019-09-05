@@ -2,6 +2,7 @@ from __future__ import division
 
 import torch 
 import random
+import copy
 
 import numpy as np
 import cv2
@@ -49,20 +50,22 @@ def center_to_corner(prediction):
     prediction : torch.tensor
         [batch, image_idx, [x_1, y_1, x_2, y_2]]
     """
-    prediction[:,:,0] = (prediction[:,:,0] - prediction[:,:,2]/2)
-    prediction[:,:,1] = (prediction[:,:,1] - prediction[:,:,3]/2)
-    prediction[:,:,2] = (prediction[:,:,0] + prediction[:,:,2]/2) 
-    prediction[:,:,3] = (prediction[:,:,1] + prediction[:,:,3]/2)
+    _prediction = copy.deepcopy(prediction)
+    _prediction[:,:,0] = (prediction[:,:,0] - prediction[:,:,2]/2)
+    _prediction[:,:,1] = (prediction[:,:,1] - prediction[:,:,3]/2)
+    _prediction[:,:,2] = (prediction[:,:,0] + prediction[:,:,2]/2) 
+    _prediction[:,:,3] = (prediction[:,:,1] + prediction[:,:,3]/2)
     
-    return prediction
+    return _prediction
 
 def corner_to_center(prediction):
-    prediction[:,:,0] = (prediction[:,:,0] + prediction[:,:,2])/2
-    prediction[:,:,1] = (prediction[:,:,1] + prediction[:,:,3])/2
-    prediction[:,:,2] = 2*(prediction[:,:,2] - prediction[:,:,0])
-    prediction[:,:,3] = 2*(prediction[:,:,3] - prediction[:,:,1])
+    _prediction = copy.deepcopy(prediction)
+    _prediction[:,:,0] = (prediction[:,:,0] + prediction[:,:,2])/2
+    _prediction[:,:,1] = (prediction[:,:,1] + prediction[:,:,3])/2
+    _prediction[:,:,2] = 2*(prediction[:,:,2] - prediction[:,:,0])
+    _prediction[:,:,3] = 2*(prediction[:,:,3] - prediction[:,:,1])
 
-    return prediction
+    return _prediction
 
 def center_to_corner_2d(prediction):
     """
@@ -74,20 +77,22 @@ def center_to_corner_2d(prediction):
     -----
         left (x1), bottom (y1), right (x2), top (y2)
     """
-    prediction[:,0] = (prediction[:,0] - prediction[:,2]/2)
-    prediction[:,1] = (prediction[:,1] - prediction[:,3]/2)
-    prediction[:,2] = (prediction[:,0] + prediction[:,2]/2)
-    prediction[:,3] = (prediction[:,1] + prediction[:,3]/2)
+    _prediction = copy.deepcopy(prediction)
+    _prediction[:,0] = (prediction[:,0] - prediction[:,2]/2)
+    _prediction[:,1] = (prediction[:,1] - prediction[:,3]/2)
+    _prediction[:,2] = (prediction[:,0] + prediction[:,2]/2)
+    _prediction[:,3] = (prediction[:,1] + prediction[:,3]/2)
     
-    return prediction
+    return _prediction
 
 def corner_to_center_2d(prediction):
-    prediction[:,0] = (prediction[:,0] + prediction[:,2])/2
-    prediction[:,1] = (prediction[:,1] + prediction[:,3])/2
-    prediction[:,2] = 2*(prediction[:,2] - prediction[:,0])
-    prediction[:,3] = 2*(prediction[:,3] - prediction[:,1])
+    _prediction = copy.deepcopy(prediction)
+    _prediction[:,0] = (prediction[:,0] + prediction[:,2])/2
+    _prediction[:,1] = (prediction[:,1] + prediction[:,3])/2
+    _prediction[:,2] = 2*(prediction[:,2] - prediction[:,0])
+    _prediction[:,3] = 2*(prediction[:,3] - prediction[:,1])
 
-    return prediction
+    return _prediction
 
 def sanity_fix(box):
     if (box[0] > box[2]):

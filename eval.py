@@ -14,18 +14,22 @@ import torch
 import os
 import argparse
 import random
-from customloader import CustomDataset, YoloResize, YoloResizeTransform, Normalize
+from customloader import CustomDataset, transform_annotation
 from torch.utils.data import DataLoader
-from data_aug.data_aug import Sequence
-from util import write_results, de_letter_box
+from data_aug.data_aug import Sequence, Equalize, Normalize, YoloResizeTransform
+from util import process_output, de_letter_box, load_classes
 from live import prep_image
-from bbox import center_to_corner
+from bbox import center_to_corner, center_to_corner_2d
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import cv2
 import pickle as pkl
 
+DEBUG = True
+
+if DEBUG:
+    logwriter = open('debug_model.log', 'w')
 
 random.seed(0)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -206,9 +210,6 @@ def custom_eval(predictions_all,
         BBGT = ground_truths[:, :4]
         nd = BB.shape[0]
         ngt = BBGT.shape[0]
-
-        print('BB number', BB.shape[0])
-        print('BBGT number', BBGT.shape[0], '\n')
         
         # Go down detections and ground truths and calc overlaps (IOUs)
         overlaps = []
@@ -238,13 +239,43 @@ def custom_eval(predictions_all,
 
     return rec, prec, ap
 
-def center_to_corner_2d(boxes):
-    boxes[:,0] = (boxes[:,0] - boxes[:,2]/2)
-    boxes[:,1] = (boxes[:,1] - boxes[:,3]/2)
-    boxes[:,2] = (boxes[:,2]/2 + boxes[:,0]) 
-    boxes[:,3] = (boxes[:,3]/2 + boxes[:,1])
-    
-    return boxes
+def write(x, img):
+    """
+    Arguments
+    ---------
+    x : array of float
+        [batch_index, x1, y1, x2, y2, objectness, label, probability]
+    img : numpy array
+        original image
+
+    Returns
+    -------
+    img : numpy array
+        Image with bounding box drawn
+    """
+
+    # Scale up thickness of lines to match size of original image
+    scale_up = int(img.shape[0]/416)
+
+    if x[-1] is not None:
+        c1 = tuple([int(y) for y in x[[0,1]]])
+        c2 = tuple([int(y) for y in x[[2,3]]])
+        label = int(x[-2])
+        label = "{0}".format(classes[label])
+        color = random.choice(colors)
+        cv2.rectangle(img, c1, c2, color, 1*scale_up)
+        t_size = cv2.getTextSize(text=label,
+                                 fontFace=cv2.FONT_HERSHEY_PLAIN, 
+                                 fontScale=1*scale_up//2, 
+                                 thickness=1*scale_up)[0]
+        c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
+        cv2.rectangle(img, c1, c2, color, thickness=-1)
+        cv2.putText(img, label, (c1[0], c1[1] + t_size[1] + 4), 
+                    fontFace=cv2.FONT_HERSHEY_PLAIN,
+                    fontScale=1*scale_up//2,
+                    color=[225,255,255],
+                    thickness=1*scale_up)
+    return img
 
 if __name__ == "__main__":
     args = arg_parse()
@@ -268,13 +299,13 @@ if __name__ == "__main__":
     # Make sure to call eval() method after loading weights
     model.eval()
 
-    # Load test data and resize only
-    transforms = Sequence([YoloResizeTransform(model_dim), Normalize()])
+    # Load test data
+    transforms = Sequence([Equalize(), YoloResizeTransform(model_dim), Normalize()])
     test_data = CustomDataset(root="data", ann_file="data/test.txt", 
                               det_transforms=transforms,
                               cfg_file=args.cfgfile,
                               num_classes=num_classes)
-    test_loader = DataLoader(test_data, batch_size=1)
+    # test_loader = DataLoader(test_data, batch_size=1)
 
     ground_truths_all = []
     predictions_all = []
@@ -284,11 +315,11 @@ if __name__ == "__main__":
     eval_output_dir = os.path.split(test_data.examples[0].rstrip())[0].replace('obj', 'eval_output')
     os.makedirs(eval_output_dir, exist_ok=True)
 
-#     for i, (img, target) in enumerate(test_loader):
     for i in range(len(test_data)):
         img_file = test_data.examples[i].rstrip()
-
-
+        img_ = plt.imread(img_file)
+        orig_w, orig_h = img_.shape[0], img_.shape[1]
+        print(img_file)
         print(i)
 
         # Read image and prepare for input to network
@@ -297,59 +328,121 @@ if __name__ == "__main__":
 
         # Read ground truth labels
         ground_truths_file = img_file.replace(img_file.split('.')[-1], 'txt')
-        try:
-            ground_truths = np.array(pd.read_csv(ground_truths_file,
-                header=None, sep=' '))
-        except pd.errors.EmptyDataError:
-            continue
-        ground_truths[:, 1:] = center_to_corner_2d(ground_truths[:, 1:] * np.asarray(orig_dim[0]))
+        with open(ground_truths_file, 'r') as f:
+            # Read ground truth file and transform annotation to:  xc,yc,w,h,label
+            ground_truths = transform_annotation(f.readlines(), img_.shape, model_dim)
+            # Convert xc,yc,w,h --> x1,y1,x2,y2
+            ground_truths = center_to_corner_2d(ground_truths)
+            # Scale up from model size to original image size
 
-        class_labels = ground_truths[:, 0]
-        # x1y1x2y2
-        ground_truths = ground_truths[:, 1:]
+            # Go from square (0-1)*model_dim to original image shape scale
+            ground_truths[:,[0,2]] *= orig_w/model_dim
+            ground_truths[:,[1,3]] *= orig_h/model_dim
+
+        class_labels = ground_truths[:, -1]
         num_gts += ground_truths.shape[0]
         
         img = img.to(device)
         with torch.no_grad():
             output = model(img)
-        # output = center_to_corner(output)
-        
-        # output = output.unsqueeze(0).view(-1, bbox_attrs)
 
-        # keep = np.unique(np.asarray(nms(output, scores=output[:, 5], overlap=0.3, top_k=10)[0]))
-        # print('keep ', keep)
-        # output = output[keep, :]
-
-        # # Convert to numpy
-        # output = np.asarray(output.squeeze(0))
+        # NB, output is:
+        # [batch, image_id, [x_center, y_center, width, height, objectness_score, class_score1, class_score2, ...]]
         
         if output.shape[0] > 0:
             # To later plot bboxes
             img_ = plt.imread(img_file)
 
-            output = write_results(output, 0.0, num_classes, model_dim, orig_dim.unsqueeze(0), nms=True, nms_conf=0.5)
+            output = output.squeeze(0)
+
+            for i in range(output.shape[0]):
+                if output[i, -3] > float(args.plot_conf):
+                    logwriter.write('output,' + ','.join([str(x.item()) for x in output[i]]) + '\n')
+
+            output = process_output(output, num_classes)
+
+            # #Get rid of the zero entries for objectness
+            # non_zero_ind =  (torch.nonzero(output[:,4]))
+            # image_pred_ = output[non_zero_ind.squeeze(),:].view(-1,7)
+            # # Remove low confidence by class probs
+            # image_pred_ = image_pred_[image_pred_[:, -1] >= args.plot_conf, :]
+            # #Get the various classes detected in the image
+            # try:
+            #     img_classes = unique(image_pred_[:,-2].int())
+            #     print('img_classes ', img_classes)
+            # except:
+            #     continue
+            # #WE will do NMS classwise
+            # for label in img_classes:
+            #     #get the detections with one particular class
+            #     cls_mask_ind = (image_pred_[:,-2].int() == label)
+            #     # class_mask_ind = torch.nonzero(cls_mask[:,-2]).squeeze()
+            #     image_pred_class = image_pred_[cls_mask_ind].view(-1,7)
+            
+            #     #sort the detections such that the entry with the maximum objectness
+            #     #confidence is at the top
+            #     conf_sort_index = torch.sort(image_pred_class[:,4], descending=True )[1]
+            #     image_pred_class = image_pred_class[conf_sort_index]
+            #     idx = image_pred_class.size(0)
+
+            #     if nms:
+            #         #For each detection
+            #         for i in range(idx):
+            #             #Get the IOUs of all boxes that come after the one we are looking at 
+            #             #in the loop
+            #             try:
+            #                 ious = bbox_iou(image_pred_class[i].unsqueeze(0), image_pred_class[i+1:])
+            #             except ValueError:
+            #                 continue
+            #             except IndexError:
+            #                 continue
+                        
+            #             # Zero out all the detections that have IoU > nms treshhold
+            #             iou_mask = (ious < nms_conf).float().unsqueeze(1)
+            #             image_pred_class[i+1:] *= iou_mask       
+                        
+            #             # Keep the non-zero entries for objectness
+            #             non_zero_ind = torch.nonzero(image_pred_class[:,4]).squeeze()
+            #             image_pred_class = image_pred_class[non_zero_ind].view(-1,7)
+
+            # Center to corner
+            output_ = output.clone()
+            output[:,0] = output_[:,0] - output_[:,2]/2
+            output[:,1] = output_[:,1] - output_[:,3]/2
+            output[:,2] = output_[:,0] + output_[:,2]/2
+            output[:,3] = output_[:,1] + output_[:,3]/2
 
             # Scale
-            scaling_factor = torch.min(model_dim/orig_dim,1)[0].view(-1,1)
+            scaling_factor_x = torch.min(model_dim/orig_dim,1)[0].view(-1,1)
+            scaling_factor_y = torch.min(model_dim/orig_dim,1)[0].view(-1,1)
+
             orig_dim = orig_dim.repeat(output.size(0), 1)
-            output[:,[1,3]] -= (model_dim - scaling_factor*orig_dim[:,0].view(-1,1))/2
-            output[:,[2,4]] -= (model_dim - scaling_factor*orig_dim[:,1].view(-1,1))/2
-            output[:,1:5] /= scaling_factor
 
             outputs = []
             for i in range(output.shape[0]):
-                output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, orig_dim[i,0])
-                output[i, [2,4]] = torch.clamp(output[i, [2,4]], 0.0, orig_dim[i,1])
-                final = np.asarray(output[i, 1:6], dtype=np.int32)
-                if output[i,7] > args.plot_conf:
-                    # Draw bounding boxes on test images ([top, left], [bottom, right])
-                    colors = pkl.load(open("pallete", "rb"))
-                    c1 = tuple(final[[3,0]])
-                    c2 = tuple(final[[1,2]])              
-                    cv2.rectangle(img_, c1, c2, color=colors[3], thickness=1)
-                outputs.append(final)
+                if output[i, -1] >= float(args.plot_conf):
+                    if DEBUG:
+                        logwriter.write('output,' + ','.join([str(x.item()) for x in output[i, 0:4]]) + '\n')
+                    output[i,[0,2]] -= (model_dim - scaling_factor_x[0]*orig_dim[i,0])/2
+                    output[i,[1,3]] -= (model_dim - scaling_factor_y[0]*orig_dim[i,1])/2
+                    output[i,[0,2]] /= scaling_factor_x[0]
+                    output[i,[1,3]] /= scaling_factor_y[0]
 
-            # write image with bboxes to a new folder
+                    # if DEBUG:
+                    #     logwriter.write('after scaling,' + ','.join([str(x.item()) for x in output[i, 0:4]]) + '\n')
+                    output[i, [0,2]] = torch.clamp(output[i, [0,2]], 0.0, orig_dim[i,0])
+                    output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, orig_dim[i,1])
+                    if DEBUG:
+                        logwriter.write('after clipping,' + ','.join([str(x.item()) for x in output[i, 0:4]]) + '\n')
+                    final = np.asarray(output[i, 0:8])
+                    outputs.append(final)
+
+            classes = load_classes('data/obj.names')
+            colors = pkl.load(open("pallete", "rb"))
+            
+            list(map(lambda x: write(x, img_), outputs))
+            
+            # Write image with bboxes to a new folder
             plt.imsave(img_file.replace(img_file.split('.')[-1], '_out.jpg').replace(
                 img_file.split(os.sep)[-2], 'eval_output'), img_)
 

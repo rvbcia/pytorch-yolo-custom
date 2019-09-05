@@ -18,19 +18,35 @@ import os
 random.seed(0)
 
 
-def transform_annotation(x):
-    """Convert the annotation/target boxes to a format understood by
-    dataset class"""
+def transform_annotation(x, orig_dim, model_dim):
+    """Convert the annotation/target boxes from VoTT to a format understood by
+    dataset class
+    
+    Arguments
+    ---------
+    x : string
+
+        Consists of:
+            label
+            x_center measured from left (0-1)
+            y_center measured from top (0-1)
+            width (0-1)
+            height (0-1)
+
+    """
     if not x:
         return None
     boxes = np.array([a.rstrip().split(' ') for a in x], dtype='float32')
-    
-    # get the bounding boxes and convert them into proper format
-    boxes = boxes[:, 1:]
+
+    # Get the bounding boxes and convert them into proper format
+    category_ids = boxes[:,0]
+    boxes = boxes[:,1:]
     boxes = np.array(boxes)
     boxes = boxes.reshape(-1,4)
-    
-    category_ids = np.array(boxes[:,0]).reshape(-1,1)
+
+    boxes[:,:4] *= model_dim
+
+    category_ids = np.array(category_ids).reshape(-1,1)
     ground_truth = np.concatenate([boxes, category_ids], 1).reshape(-1,5)
   
     return ground_truth
@@ -256,7 +272,7 @@ class CustomDataset(Dataset):
         #seperate images, boxes and class_ids
         ground_truth = None
         with open(example.replace(example.split('.')[-1], 'txt')) as f:
-            ground_truth = transform_annotation(f.readlines())
+            ground_truth = transform_annotation(f.readlines(), image.shape, self.inp_dim)
 
         self.debug_id = example
         #apply the augmentations to the image and the bounding boxes
