@@ -9,17 +9,24 @@ increased and Average Precision will be higher.
 If running on CPU-only, this script may be slow.
 """
 
-from darknet import Darknet, get_test_input
-import torch
 import os
 import argparse
 import random
+import copy
+import glob
+
+import torch
+from torchvision.transforms import functional as F
+from PIL import Image, ImageOps
+
+from darknet import Darknet, get_test_input
 from customloader import CustomDataset, transform_annotation
 from torch.utils.data import DataLoader
 from data_aug.data_aug import Sequence, Equalize, Normalize, YoloResizeTransform
 from util import process_output, de_letter_box, load_classes
 from live import prep_image
 from bbox import center_to_corner, center_to_corner_2d
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -300,12 +307,14 @@ if __name__ == "__main__":
     model.eval()
 
     # Load test data
-    transforms = Sequence([Equalize(), YoloResizeTransform(model_dim), Normalize()])
+    transforms = Sequence([YoloResizeTransform(model_dim), Normalize()])
     test_data = CustomDataset(root="data", ann_file="data/test.txt", 
                               det_transforms=transforms,
                               cfg_file=args.cfgfile,
                               num_classes=num_classes)
-    # test_loader = DataLoader(test_data, batch_size=1)
+    test_loader = DataLoader(test_data, 
+                             batch_size=1,
+                             shuffle=False)
 
     ground_truths_all = []
     predictions_all = []
@@ -314,37 +323,33 @@ if __name__ == "__main__":
     # Make a directory for the image files with their bboxes
     eval_output_dir = os.path.split(test_data.examples[0].rstrip())[0].replace('obj', 'eval_output')
     os.makedirs(eval_output_dir, exist_ok=True)
+    
+    # Get image files to match "image" from test_loader which does alphabetical
+    with open(os.path.join('data', 'test.txt'), 'r') as f:
+        files_grabbed = f.readlines()
+        files_grabbed = [x.rstrip() for x in files_grabbed]
+    files_grabbed.sort()
 
-    for i in range(len(test_data)):
-        img_file = test_data.examples[i].rstrip()
+    for i, (image, ground_truth, filepath) in enumerate(test_loader):
+        
+        img_file = filepath[0].rstrip()
         img_ = plt.imread(img_file)
-        orig_w, orig_h = img_.shape[0], img_.shape[1]
+        orig_h, orig_w = img_.shape[0], img_.shape[1]
+        orig_dim = torch.FloatTensor([orig_w, orig_h]).repeat(1,2)
         print(img_file)
         print(i)
 
-        # Read image and prepare for input to network
-        img, orig_im, orig_dim = prep_image(plt.imread(img_file), model_dim)
-        orig_dim = torch.FloatTensor(orig_dim).repeat(1,2)
+        ground_truths = []
+        if len(ground_truth) == 0:
+            continue
+        else:
+            ground_truths.append(ground_truth)
 
-        # Read ground truth labels
-        ground_truths_file = img_file.replace(img_file.split('.')[-1], 'txt')
-        with open(ground_truths_file, 'r') as f:
-            # Read ground truth file and transform annotation to:  xc,yc,w,h,label
-            ground_truths = transform_annotation(f.readlines(), img_.shape, model_dim)
-            # Convert xc,yc,w,h --> x1,y1,x2,y2
-            ground_truths = center_to_corner_2d(ground_truths)
-            # Scale up from model size to original image size
 
-            # Go from square (0-1)*model_dim to original image shape scale
-            ground_truths[:,[0,2]] *= orig_w/model_dim
-            ground_truths[:,[1,3]] *= orig_h/model_dim
-
-        class_labels = ground_truths[:, -1]
-        num_gts += ground_truths.shape[0]
-        
-        img = img.to(device)
-        with torch.no_grad():
-            output = model(img)
+        # predict on input test image
+        image = image.to(device)
+        with torch.no_grad():        
+            output = model(image)
 
         # NB, output is:
         # [batch, image_id, [x_center, y_center, width, height, objectness_score, class_score1, class_score2, ...]]
@@ -356,94 +361,43 @@ if __name__ == "__main__":
             output = output.squeeze(0)
 
             for i in range(output.shape[0]):
-                if output[i, -3] > float(args.plot_conf):
-                    logwriter.write('output,' + ','.join([str(x.item()) for x in output[i]]) + '\n')
+                if output[i, -1] >= float(args.plot_conf):
+                    logwriter.write('output before center2corner,' + ','.join([str(x.item()) for x in output[i]]) + '\n')
 
             output = process_output(output, num_classes)
 
-            # #Get rid of the zero entries for objectness
-            # non_zero_ind =  (torch.nonzero(output[:,4]))
-            # image_pred_ = output[non_zero_ind.squeeze(),:].view(-1,7)
-            # # Remove low confidence by class probs
-            # image_pred_ = image_pred_[image_pred_[:, -1] >= args.plot_conf, :]
-            # #Get the various classes detected in the image
-            # try:
-            #     img_classes = unique(image_pred_[:,-2].int())
-            #     print('img_classes ', img_classes)
-            # except:
-            #     continue
-            # #WE will do NMS classwise
-            # for label in img_classes:
-            #     #get the detections with one particular class
-            #     cls_mask_ind = (image_pred_[:,-2].int() == label)
-            #     # class_mask_ind = torch.nonzero(cls_mask[:,-2]).squeeze()
-            #     image_pred_class = image_pred_[cls_mask_ind].view(-1,7)
-            
-            #     #sort the detections such that the entry with the maximum objectness
-            #     #confidence is at the top
-            #     conf_sort_index = torch.sort(image_pred_class[:,4], descending=True )[1]
-            #     image_pred_class = image_pred_class[conf_sort_index]
-            #     idx = image_pred_class.size(0)
-
-            #     if nms:
-            #         #For each detection
-            #         for i in range(idx):
-            #             #Get the IOUs of all boxes that come after the one we are looking at 
-            #             #in the loop
-            #             try:
-            #                 ious = bbox_iou(image_pred_class[i].unsqueeze(0), image_pred_class[i+1:])
-            #             except ValueError:
-            #                 continue
-            #             except IndexError:
-            #                 continue
-                        
-            #             # Zero out all the detections that have IoU > nms treshhold
-            #             iou_mask = (ious < nms_conf).float().unsqueeze(1)
-            #             image_pred_class[i+1:] *= iou_mask       
-                        
-            #             # Keep the non-zero entries for objectness
-            #             non_zero_ind = torch.nonzero(image_pred_class[:,4]).squeeze()
-            #             image_pred_class = image_pred_class[non_zero_ind].view(-1,7)
-
             # Center to corner
-            output_ = output.clone()
+            output_ = copy.deepcopy(output)
             output[:,0] = output_[:,0] - output_[:,2]/2
             output[:,1] = output_[:,1] - output_[:,3]/2
             output[:,2] = output_[:,0] + output_[:,2]/2
             output[:,3] = output_[:,1] + output_[:,3]/2
 
             # Scale
-            scaling_factor_x = torch.min(model_dim/orig_dim,1)[0].view(-1,1)
-            scaling_factor_y = torch.min(model_dim/orig_dim,1)[0].view(-1,1)
-
-            orig_dim = orig_dim.repeat(output.size(0), 1)
-
+            # scaling_factor = torch.min(model_dim/orig_dim[:,[0,1]],1)[0].view(-1,1)
+            output = output[output[:,-1] > float(args.plot_conf), :]
             outputs = []
-            for i in range(output.shape[0]):
-                if output[i, -1] >= float(args.plot_conf):
-                    if DEBUG:
-                        logwriter.write('output,' + ','.join([str(x.item()) for x in output[i, 0:4]]) + '\n')
-                    output[i,[0,2]] -= (model_dim - scaling_factor_x[0]*orig_dim[i,0])/2
-                    output[i,[1,3]] -= (model_dim - scaling_factor_y[0]*orig_dim[i,1])/2
-                    output[i,[0,2]] /= scaling_factor_x[0]
-                    output[i,[1,3]] /= scaling_factor_y[0]
-
-                    # if DEBUG:
-                    #     logwriter.write('after scaling,' + ','.join([str(x.item()) for x in output[i, 0:4]]) + '\n')
-                    output[i, [0,2]] = torch.clamp(output[i, [0,2]], 0.0, orig_dim[i,0])
-                    output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, orig_dim[i,1])
-                    if DEBUG:
-                        logwriter.write('after clipping,' + ','.join([str(x.item()) for x in output[i, 0:4]]) + '\n')
-                    final = np.asarray(output[i, 0:8])
-                    outputs.append(final)
+            if output.size(0) > 0:
+                scale = float(model_dim)/orig_dim
+                orig_dim = orig_dim.repeat(output.size(0), 1)
+                output[:,:4] /= scale
+                print('orig dim ', orig_dim)
+                # output[:,[0,2]] -= (model_dim - scaling_factor*orig_dim[0,0])/2
+                output[:, [0,2]] = torch.clamp(output[:,[0,2]], 0.0, orig_dim[0,0])
+                output[:, [1,3]] = torch.clamp(output[:,[1,3]], 0.0, orig_dim[0,1])
+                outputs = list(np.asarray(output[:,:8]))
 
             classes = load_classes('data/obj.names')
             colors = pkl.load(open("pallete", "rb"))
             
+            # # Test resizing to model dim
+            # img_ = Image.fromarray(np.uint8(img_))
+            # img_ = F.resize(img_, (model_dim, model_dim))
+            # img_ = np.asarray(img_)
             list(map(lambda x: write(x, img_), outputs))
             
             # Write image with bboxes to a new folder
-            plt.imsave(img_file.replace(img_file.split('.')[-1], '_out.jpg').replace(
+            plt.imsave(img_file.replace('.'+img_file.split('.')[-1], '_out.jpg').replace(
                 img_file.split(os.sep)[-2], 'eval_output'), img_)
 
             outputs = torch.tensor(outputs)
@@ -451,5 +405,5 @@ if __name__ == "__main__":
             ground_truths_all.append(ground_truths)
             predictions_all.append(outputs)
 
-    prec, rec, aps = custom_eval(predictions_all, ground_truths_all, num_gts=num_gts, ovthresh=overlap_thresh)
-    print('Precision ', prec, 'Recall ', rec, 'Average precision ', np.mean(aps), sep='\n')
+    # prec, rec, aps = custom_eval(predictions_all, ground_truths_all, num_gts=num_gts, ovthresh=overlap_thresh)
+    # print('Precision ', prec, 'Recall ', rec, 'Average precision ', np.mean(aps), sep='\n')

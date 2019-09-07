@@ -4,7 +4,7 @@ import cv2
 import matplotlib.pyplot as plt
 
 from torchvision.transforms import functional as F
-from PIL import Image
+from PIL import Image, ImageOps
 
 import sys
 import os 
@@ -991,8 +991,9 @@ class YoloResizeTransform(object):
             PIL Image: Rescaled image.
         """
         orig_dim = img.shape
-        scale_x = orig_dim[0]/self.size
-        scale_y = orig_dim[1]/self.size
+        scale_x = orig_dim[1]/self.size
+        scale_y = orig_dim[0]/self.size
+
         if bboxes.size > 0:
             bboxes[:, [0,2]] /= scale_x
             bboxes[:, [1,3]] /= scale_y
@@ -1021,7 +1022,7 @@ class Equalize(object):
 
 
 class Normalize(object):
-    """Normalize the input numpy image array to the given size"""
+    """Normalize the input numpy image array unit norm"""
 
     def __init__(self):
         self.channels = 3
@@ -1042,5 +1043,6 @@ class Normalize(object):
             maxval = arr[...,i].max()
             if minval != maxval:
                 arr[...,i] -= minval
+                # Don't divide by 255 because already have
                 arr[...,i] *= ((maxval-minval))
         return arr, bboxes
