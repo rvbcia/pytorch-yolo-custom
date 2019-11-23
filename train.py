@@ -311,12 +311,15 @@ stop_layer = 0
 
 cntr = 0
 
-for param in model.parameters():
+for name, param in model.named_parameters():
     if cntr < stop_layer:
         param.requires_grad = False
     else:
-        print("Parameter has gradients tracked.")
-        param.requires_grad = True
+        if 'batch_norm' not in name:
+            print("Parameter has gradients tracked.")
+            param.requires_grad = True
+        else:
+            param.requires_grad = False
     cntr+=1
 
 # Use this optimizer calculation for training loss
