@@ -180,9 +180,9 @@ def YOLO_loss(ground_truth, output):
 ### DATA ###
 
 # Overloading custom data transforms from customloader (may add more here)
-custom_transforms = Sequence([RandomHSV(hue=hue, saturation=saturation, brightness=exposure), 
-    YoloResizeTransform(inp_dim)])
-# custom_transforms = Sequence([YoloResizeTransform(inp_dim), Normalize()])
+# custom_transforms = Sequence([RandomHSV(hue=hue, saturation=saturation, brightness=exposure), 
+#     YoloResizeTransform(inp_dim), Normalize()])
+custom_transforms = Sequence([YoloResizeTransform(inp_dim), Normalize()])
 
 # Data instance and loader
 data = CustomDataset(root="data", num_classes=num_classes, 
@@ -304,7 +304,10 @@ data_loader = DataLoader(data, batch_size=bs,
 ### FINE TUNE MODEL ON MORE LAYERS ###
 
 # "unfreeze" refers to the last number of layers to tune (allow gradients to be tracked - backprop)
-stop_layer = layers_length - (args.unfreeze * 2) # Freeze up to this layer (open up more than first phase)
+# stop_layer = layers_length - (args.unfreeze * 2) # Freeze up to this layer (open up more than first phase)
+
+# Open up the whole network
+stop_layer = 0
 
 cntr = 0
 
