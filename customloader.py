@@ -42,9 +42,13 @@ def transform_annotation(x, orig_dim, model_dim):
     category_ids = boxes[:,0]
     boxes = boxes[:,1:]
     boxes = np.array(boxes)
+    # Change y_center to measure from bottom
+    boxes[:,1] = 1. - boxes[:,1]
     boxes = boxes.reshape(-1,4)
 
-    boxes[:,:4] *= model_dim
+    # boxes[:,:4] *= model_dim
+    boxes[:,[0,2]] *= orig_dim[1]
+    boxes[:,[1,3]] *= orig_dim[0]
 
     category_ids = np.array(category_ids).reshape(-1,1)
     ground_truth = np.concatenate([boxes, category_ids], 1).reshape(-1,5)
@@ -264,8 +268,11 @@ class CustomDataset(Dataset):
         example = self.examples[idx]
 
         path = os.path.join(os.getcwd(), example).rstrip()
-        image = cv2.imread(path)[:,:,::-1]   #Load the image from opencv and convert to RGB
+        # image = cv2.imread(path)[:,:,::-1]   #Load the image from opencv and convert to RGB
 
+        image = cv2.imread(path)
+        _img = image[:,:,::-1].copy()
+    
         label_table = np.zeros((sum(self.num_pred_boxes), 6), dtype=np.float)
         label_table = self.get_pred_box_cords(label_table)
                 
@@ -277,13 +284,14 @@ class CustomDataset(Dataset):
         self.debug_id = example
         #apply the augmentations to the image and the bounding boxes
         if self.det_transforms:
-            image, ground_truth = self.det_transforms(image, ground_truth)
-        im = image.copy()
+            _img, ground_truth = self.det_transforms(_img, ground_truth)
 
         #Convert the cv2 image into a PyTorch tensor
-        image = image.transpose(2,0,1)/255.0
-        image = torch.Tensor(image)
-            
+        # image = image.transpose(2,0,1)/255.0
+        # image = torch.Tensor(image)
+
+        _img = torch.from_numpy(_img.transpose(2,0,1)).float().div(255.0)
+
         #  ground_truth = corner_to_center(ground_truth[np.newaxis,:,:]).squeeze().reshape(-1,5)
             
         if len(ground_truth) > 0 and ground_truth.shape[0] > 0:
@@ -305,7 +313,7 @@ class CustomDataset(Dataset):
         else:
             ground_truth_map = torch.zeros((0, 6), dtype=torch.float)
 
-        return image, ground_truth_map
+        return _img, ground_truth_map, example
 
     def collate_fn(self, batch):
         """
