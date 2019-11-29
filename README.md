@@ -15,11 +15,14 @@ This project is a "You Only Look Once" v3 sample using PyTorch, a fork of https:
 
 <img src="imgs/id_plumeria_sml.png" width="70%" align="center">
 
-Important Notes
+IMPORTANT NOTES
 --- 
-* This project is a work in progress.
-* Training is very sensitive to LR and LR decreases (please be aware and watch out for this).
-* The example config files are 2 classes, see below on how to change the number of classes.
+* This project is a work in progress and issues are welcome (it's also a hobby at this point, so updates may be slow)
+* There are two phases in training: 1) the first pass (set number of epochs in `cfg` file and layers to train on set on command line) and 2) fine-tuning (all parameters are trained upon, i.e. all layers "opened up")
+* Training is very sensitive to the amount of layers to unfreeze for transfer learning which is set on command line (try more, then work down to less - affects first pass); if the loss does not decrease/model converge, try opening up more layers to be trained upon
+* Training is sensitive to initial LR and LR decreases (the schedule)
+* The example config files are 1 and 2 class, see below on how to change the number of classes
+* Always calculate your own anchors (i.e. anchor box width and heights)
 
 ## Setup
 
@@ -97,9 +100,7 @@ data/obj/482535.JPG
 data/obj/483510.JPG
 ```
 
-* To update the number of layers that are tracking gradients for fine-tuning, at the beginning of the `train.py` script, update the default `FINE_TUNE_STOP_LAYER`.
-
-### Run Training
+### Run Training Script
 
 Cmd example:
 

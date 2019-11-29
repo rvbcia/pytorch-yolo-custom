@@ -6,7 +6,7 @@ obj
 .DS_Store
 data*
 detection*
-
+temp*
 
 
 # Byte-compiled / optimized / DLL files

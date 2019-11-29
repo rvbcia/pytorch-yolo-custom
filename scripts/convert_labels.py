@@ -83,7 +83,7 @@ def gather_bboxes(infolder, outfile):
             output_bboxes = []
             for i in range(len(new_bboxes)):
                 bbox = [str(x) for x in new_bboxes[i]]
-                new_output_box = ','.join([classes[i]] + bbox)
+                new_output_box = ','.join(bbox + [classes[i]])
                 output_bboxes.append(new_output_box)
 
             if len(output_bboxes) > 0:

@@ -1,6 +1,9 @@
 """
 Create anchors using Kmeans clustering on dataset.  Creates a text file
 to use during training.
+
+Run convert_labels.py first on the data/obj folder to get an intermediate file
+to use with this script.
 """
 
 import numpy as np
