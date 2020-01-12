@@ -89,15 +89,15 @@ The tiny architecture has 6 anchors, whereas, the non-tiny or full sized YOLOv3 
 
 `train.txt`
 ```
-data/obj/482133.JPG
-data/obj/482128.JPG
-data/obj/482945.jpg
-data/obj/483153.JPG
-data/obj/481427.jpg
-data/obj/480836.jpg
-data/obj/483522.JPG
-data/obj/482535.JPG
-data/obj/483510.JPG
+imgs/482133.JPG
+imgs/482128.JPG
+imgs/482945.jpg
+imgs/483153.JPG
+imgs/481427.jpg
+imgs/480836.jpg
+imgs/483522.JPG
+imgs/482535.JPG
+imgs/483510.JPG
 ```
 
 ### Run Training Script
@@ -120,13 +120,13 @@ Here, you will use your trained model for evaluation on test data and a live vid
 
 `test.txt`
 ```
-data/obj/482308.JPG
-data/obj/483367.JPG
-data/obj/483037.jpg
-data/obj/481962.JPG
-data/obj/481472.jpg
-data/obj/483303.JPG
-data/obj/483326.JPG
+imgs/482308.JPG
+imgs/483367.JPG
+imgs/483037.jpg
+imgs/481962.JPG
+imgs/481472.jpg
+imgs/483303.JPG
+imgs/483326.JPG
 ```
 
 ### Evaluation
